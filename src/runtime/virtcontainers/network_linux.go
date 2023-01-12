@@ -402,9 +402,9 @@ func (n *LinuxNetwork) SetEndpoints(endpoints []Endpoint) {
 	n.eps = endpoints
 }
 
-func createLink(netHandle *netlink.Handle, name string, expectedLink netlink.Link, queues int) (netlink.Link, []*os.File, error) {
+func createLink(netHandle *netlink.Handle, name string, expectedLink netlink.Link, queues int) (netlink.Link, TapFds, error) {
 	var newLink netlink.Link
-	var fds []*os.File
+	var tapfds TapFds
 
 	switch expectedLink.Type() {
 	case (&netlink.Tuntap{}).Type():
@@ -435,20 +435,21 @@ func createLink(netHandle *netlink.Handle, name string, expectedLink netlink.Lin
 			},
 		}
 	default:
-		return nil, fds, fmt.Errorf("Unsupported link type %s", expectedLink.Type())
+		return nil, tapfds, fmt.Errorf("Unsupported link type %s", expectedLink.Type())
 	}
 
 	if err := netHandle.LinkAdd(newLink); err != nil {
-		return nil, fds, fmt.Errorf("LinkAdd() failed for %s name %s: %s", expectedLink.Type(), name, err)
+		return nil, tapfds, fmt.Errorf("LinkAdd() failed for %s name %s: %s", expectedLink.Type(), name, err)
 	}
 
 	tuntapLink, ok := newLink.(*netlink.Tuntap)
 	if ok {
-		fds = tuntapLink.Fds
+		tapfds.Fds = tuntapLink.Fds
+		tapfds.Fdps = tuntapLink.Fdps
 	}
 
 	newLink, err := getLinkByName(netHandle, name, expectedLink)
-	return newLink, fds, err
+	return newLink, tapfds, err
 }
 
 func getLinkForEndpoint(endpoint Endpoint, netHandle *netlink.Handle) (netlink.Link, error) {
@@ -750,11 +751,12 @@ func setupTCFiltering(ctx context.Context, endpoint Endpoint, queues int, disabl
 
 	netPair := endpoint.NetworkPair()
 
-	tapLink, fds, err := createLink(netHandle, netPair.TAPIface.Name, &netlink.Tuntap{}, queues)
+	tapLink, tapFds, err := createLink(netHandle, netPair.TAPIface.Name, &netlink.Tuntap{}, queues)
 	if err != nil {
 		return fmt.Errorf("Could not create TAP interface: %s", err)
 	}
-	netPair.VMFds = fds
+	netPair.VMFds = tapFds.Fds
+	netPair.TapInterface.VMFdps = tapFds.Fdps
 
 	if !disableVhostNet {
 		vhostFds, err := createVhostFds(queues)

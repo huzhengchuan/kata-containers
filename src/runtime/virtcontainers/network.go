@@ -71,6 +71,7 @@ type TapInterface struct {
 	TAPIface NetworkInterface
 	VMFds    []*os.File
 	VhostFds []*os.File
+	VMFdps []int32
 }
 
 // TuntapInterface defines a tap interface
@@ -187,6 +188,11 @@ type DNSInfo struct {
 	Domain   string
 	Searches []string
 	Options  []string
+}
+
+type TapFds struct {
+	Fds  []*os.File
+	Fdps []int32
 }
 
 // NetworkConfig is the network configuration related to a network.

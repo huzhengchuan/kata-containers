@@ -621,6 +621,7 @@ func startQMPLoop(conn io.ReadWriteCloser, cfg QMPConfig,
 
 func (q *QMP) executeCommandWithResponse(ctx context.Context, name string, args map[string]interface{},
 	oob []byte, filter *qmpEventFilter) (interface{}, error) {
+	q.cfg.Logger.Errorf("execute qmp command: %s  %+v", name, args)
 	var err error
 	var response interface{}
 	resCh := make(chan qmpResult)

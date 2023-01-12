@@ -37,7 +37,7 @@ get_from_kata_deps() {
 	versions_file="${this_script_dir}/../../../versions.yaml"
 
 	command -v yq &>/dev/null || die 'yq command is not in your $PATH'
-	result=$("yq" read -X "$versions_file" "$dependency")
+	result=$(yq e "$dependency"  "$versions_file" )
 	[ "$result" = "null" ] && result=""
 	echo "$result"
 }

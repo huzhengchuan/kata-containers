@@ -159,6 +159,7 @@ var initFactoryCommand = cli.Command{
 			return errors.New("invalid runtime config")
 		}
 
+		runtimeConfig.HypervisorConfig.EnableVmcache = true
 		factoryConfig := vf.Config{
 			Template:     runtimeConfig.FactoryConfig.Template,
 			TemplatePath: runtimeConfig.FactoryConfig.TemplatePath,

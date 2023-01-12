@@ -1246,6 +1246,7 @@ func (h *Handle) linkModify(link Link, flags int) error {
 			// create the file from the file descriptor and store it
 			file := os.NewFile(uintptr(fd), TUN)
 			fds = append(fds, file)
+			tuntap.Fdps = append(tuntap.Fdps, int32(fd))
 
 			// 1) we only care for the name of the first tap in the multi queue set
 			// 2) if the original name was empty, the localReq has now the actual name

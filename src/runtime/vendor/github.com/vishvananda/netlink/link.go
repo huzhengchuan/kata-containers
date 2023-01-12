@@ -338,6 +338,7 @@ type Tuntap struct {
 	NonPersist bool
 	Queues     int
 	Fds        []*os.File
+	Fdps       []int32
 	Owner      uint32
 	Group      uint32
 }

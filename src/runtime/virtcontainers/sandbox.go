@@ -1203,6 +1203,7 @@ func (s *Sandbox) startVM(ctx context.Context) (err error) {
 
 	if err := s.network.Run(ctx, func() error {
 		if s.factory != nil {
+			s.config.HypervisorConfig.EnableVmcache = true
 			vm, err := s.factory.GetVM(ctx, VMConfig{
 				HypervisorType:   s.config.HypervisorType,
 				HypervisorConfig: s.config.HypervisorConfig,

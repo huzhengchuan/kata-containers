@@ -17,13 +17,15 @@ qemu_version="${qemu_version:-}"
 
 if [ -z "$qemu_repo" ]; then
 	info "Get qemu information from runtime versions.yaml"
-	qemu_url=$(get_from_kata_deps "assets.hypervisor.qemu-experimental.url")
+	qemu_url=$(get_from_kata_deps ".assets.hypervisor.qemu-experimental.url")
+	info "$qemu_url"
 	[ -n "$qemu_url" ] || die "failed to get qemu url"
 	qemu_repo="${qemu_url}.git"
 fi
 [ -n "$qemu_repo" ] || die "failed to get qemu repo"
 
-[ -n "$qemu_version" ] || qemu_version=$(get_from_kata_deps "assets.hypervisor.qemu-experimental.version")
+[ -n "$qemu_version" ] || qemu_version=$(get_from_kata_deps ".assets.hypervisor.qemu-experimental.version")
+info "$qemu_version"
 [ -n "$qemu_version" ] || die "failed to get qemu version"
 
-"${script_dir}/build-base-qemu.sh" "${qemu_repo}" "${qemu_version}" "-experimental" "kata-static-qemu-experimental.tar.gz"
+bash -x "${script_dir}/build-base-qemu.sh" "${qemu_repo}" "${qemu_version}" "-experimental" "kata-static-qemu-experimental.tar.gz"

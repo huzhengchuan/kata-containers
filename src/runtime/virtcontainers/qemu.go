@@ -127,6 +127,7 @@ const (
 	scsiControllerID         = "scsi0"
 	rngID                    = "rng0"
 	fallbackFileBackedMemDir = "/dev/shm"
+	sharedPathSuffix = "shared"
 
 	qemuStopSandboxTimeoutSecs = 15
 )
@@ -368,10 +369,18 @@ func (q *qemu) createQmpSocket() ([]govmmQemu.QMPSocket, error) {
 		path: monitorSockPath,
 	}
 
+	debugMonitorSockPath := strings.ReplaceAll(monitorSockPath, qmpSocket, "ake-qmp.sock")
+
 	return []govmmQemu.QMPSocket{
 		{
 			Type:   "unix",
 			Name:   q.qmpMonitorCh.path,
+			Server: true,
+			NoWait: true,
+		},
+		{
+			Type:   "unix",
+			Name:   debugMonitorSockPath,
 			Server: true,
 			NoWait: true,
 		},
@@ -683,6 +692,10 @@ func (q *qemu) CreateVM(ctx context.Context, id string, network Network, hypervi
 
 	q.qemuConfig = qemuConfig
 
+	if hypervisorConfig.EnableVmcache {
+		hypervisorConfig.SharedPath = filepath.Join(hypervisorConfig.VMStorePath, q.id, sharedPathSuffix)
+	}
+
 	q.virtiofsDaemon, err = q.createVirtiofsDaemon(hypervisorConfig.SharedPath)
 	return err
 }
@@ -739,7 +752,7 @@ func (q *qemu) getMemArgs() (bool, string, string, error) {
 			return share, target, "", fmt.Errorf("Vhost-user-blk/scsi requires hugepage memory")
 		}
 
-		if q.config.SharedFS == config.VirtioFS || q.config.SharedFS == config.VirtioFSNydus ||
+		if (q.config.SharedFS == config.VirtioFS || q.config.SharedFS == config.VirtioFSNydus) &&
 			q.config.FileBackedMemRootDir != "" {
 			target = q.qemuConfig.Memory.Path
 			memoryBack = "memory-backend-file"
@@ -2456,6 +2469,16 @@ type qemuGrpc struct {
 	// q.qemuConfig.SMP.
 	// So just transport q.qemuConfig.SMP from VM Cache server to runtime.
 	QemuSMP govmmQemu.SMP
+
+	// send vsock contextid to client
+	ContextID uint64
+
+	// send path and pid of virtio-fs to client if needed
+	SharedFS          string
+	SourcePath        string
+	SocketPath        string
+	VirtiofsDaemonPid int
+
 }
 
 func (q *qemu) fromGrpc(ctx context.Context, hypervisorConfig *HypervisorConfig, j []byte) error {
@@ -2481,6 +2504,28 @@ func (q *qemu) fromGrpc(ctx context.Context, hypervisorConfig *HypervisorConfig,
 	q.qemuConfig.SMP = qp.QemuSMP
 
 	q.arch.setBridges(q.state.Bridges)
+
+	vsock := types.VSock{ContextID: qp.ContextID, Port: uint32(vSockPort)}
+	q.qemuConfig.Devices, err = q.arch.appendVSock(ctx, q.qemuConfig.Devices, vsock)
+	if err != nil {
+		return err
+	}
+	q.qemuConfig.PidFile = filepath.Join(q.config.VMStorePath, q.id, "pid")
+
+	q.qemuConfig.PidFile = filepath.Join(q.config.VMStorePath, q.id, "pid")
+
+	if qp.SharedFS == config.VirtioFS {
+		q.virtiofsDaemon = &virtiofsd{
+			path:       q.config.VirtioFSDaemon,
+			sourcePath: qp.SourcePath,
+			socketPath: qp.SocketPath,
+			extraArgs:  q.config.VirtioFSExtraArgs,
+			cache:      q.config.VirtioFSCache,
+			PID:        qp.VirtiofsDaemonPid,
+		}
+		q.state.VirtiofsDaemonPid = qp.VirtiofsDaemonPid
+	}
+
 	return nil
 }
 
@@ -2488,6 +2533,10 @@ func (q *qemu) toGrpc(ctx context.Context) ([]byte, error) {
 	q.qmpShutdown()
 
 	q.Cleanup(ctx)
+
+	//update state.Bridges from arch.Bridges
+	q.state.Bridges = q.arch.getBridges()
+
 	qp := qemuGrpc{
 		ID:             q.id,
 		QmpChannelpath: q.qmpMonitorCh.path,
@@ -2496,6 +2545,28 @@ func (q *qemu) toGrpc(ctx context.Context) ([]byte, error) {
 
 		QemuSMP: q.qemuConfig.SMP,
 	}
+
+	// set vsock contextid
+	for _, device := range q.qemuConfig.Devices {
+		if vsockdev, ok := device.(govmmQemu.VSOCKDevice); ok {
+			qp.ContextID = vsockdev.ContextID
+			break
+		}
+	}
+
+	// set virtio-fs daemon pid
+	if q.config.SharedFS == config.VirtioFS {
+		qp.SharedFS = config.VirtioFS
+		qp.VirtiofsDaemonPid  = q.state.VirtiofsDaemonPid
+		qp.SourcePath = q.config.SharedPath
+		virtiofsdSocketPath, err := q.vhostFSSocketPath(q.id)
+		if err != nil {
+			return nil, err
+		}
+		qp.SocketPath = virtiofsdSocketPath
+	}
+
+
 
 	return json.Marshal(&qp)
 }
@@ -2574,6 +2645,17 @@ func (q *qemu) Check() error {
 }
 
 func (q *qemu) GenerateSocket(id string) (interface{}, error) {
+	// if vsock already exsist, return it directly
+	// for vmcache, we don't need another random vsock
+	for _, device := range q.qemuConfig.Devices {
+		if vsockdev, ok := device.(govmmQemu.VSOCKDevice); ok {
+			return types.VSock{
+				VhostFd:   vsockdev.VHostFD,
+				ContextID: vsockdev.ContextID,
+				Port:      uint32(vSockPort),
+			}, nil
+		}
+	}
 	return generateVMSocket(id, q.config.VMStorePath)
 }
 
